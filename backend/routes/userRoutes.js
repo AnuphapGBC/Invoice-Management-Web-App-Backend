@@ -111,13 +111,13 @@ router.delete('/:id', async (req, res) => {
 
 // Get User by Username
 router.get('/username/:username', async (req, res) => {
-  console.log('User routes initialized');
+  // console.log('User routes initialized');
   const { username } = req.params;
-  console.log('Username received from request:', username); // Debugging log
+  // console.log('Username received from request:', username); // Debugging log
 
   try {
     const [users] = await db.query('SELECT * FROM users WHERE username = ?', [username]);
-    console.log('Query result:', users); // Debugging log
+    // console.log('Query result:', users); // Debugging log
 
     if (users.length === 0) {
       console.error('User not found:', username);

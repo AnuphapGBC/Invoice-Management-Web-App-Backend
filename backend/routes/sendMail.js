@@ -54,7 +54,7 @@ router.post('/send-mail', async (req, res) => {
 
     // Send the email
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent: ' + info.response);
+    // console.log('Email sent: ' + info.response);
 
     res.status(200).json({ message: 'Email sent successfully', success: true });
   } catch (error) {

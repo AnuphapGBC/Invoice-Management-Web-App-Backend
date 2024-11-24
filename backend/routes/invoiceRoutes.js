@@ -168,7 +168,7 @@ router.delete('/images', async (req, res) => {
   }
 
   try {
-    console.log('Deleting image:', imageUrl); // Debugging: Check the received imageUrl
+    // console.log('Deleting image:', imageUrl); // Debugging: Check the received imageUrl
 
     // Delete from database
     const result = await Invoice.deleteInvoiceImage(imageUrl);
