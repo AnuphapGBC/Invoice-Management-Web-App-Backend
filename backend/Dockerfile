@@ -1,23 +1,21 @@
-# Use a Node.js base image
-FROM node:16-alpine
+# Use a base image
+FROM node:18
 
 # Set the working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Copy the package.json and install dependencies
 COPY package*.json ./
-
-# Install dependencies
 RUN npm install
 
-# Copy the rest of the application
+# Copy the rest of the application code
 COPY . .
 
-# Set environment variables
-ENV PORT=5001
+# Set environment variables if necessary
+ENV PORT 5001
 
-# Expose the port the app runs on
+# Expose the port that the app listens to
 EXPOSE 5001
 
-# Start the server
-CMD ["npm", "start"]
+# Run the server
+CMD ["node", "server.js"]

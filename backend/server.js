@@ -8,6 +8,15 @@ const userRoutes = require('./routes/userRoutes');
 const path = require('path');
 const sendMailRoute = require('./routes/sendMail');
 
+// Load environment variables based on the current environment
+const dotenv = require('dotenv');
+if (process.env.NODE_ENV === 'production') {
+  dotenv.config({ path: '.env.production' });
+} else {
+  dotenv.config({ path: '.env.development' });
+}
+
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
@@ -31,10 +40,11 @@ app.use('/api/users', userRoutes);
 app.use('/api', sendMailRoute);
 
 
-app.listen(5001, () => {
-  console.log('Server running on port 5001');
+const PORT = process.env.PORT || 5001;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT} in ${process.env.NODE_ENV} mode`);
 });
+
 app.use('*', (req, res) => {
-  console.log('Invalid route accessed');
   res.status(404).send('Route not found');
 });
