@@ -17,6 +17,16 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+// Route to get all receipt types
+router.get('/receipt-types', async (req, res) => {
+  try {
+    const receiptTypes = await Invoice.getReceiptTypes();
+    res.status(200).json(receiptTypes);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch receipt types', error: error.message });
+  }
+});
+
 // Create Invoice with Images
 router.post('/', upload.array('images', 10), async (req, res) => {
   const { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency, createdBy } = req.body;
@@ -168,29 +178,22 @@ router.delete('/images', async (req, res) => {
   }
 
   try {
-    // console.log('Deleting image:', imageUrl); // Debugging: Check the received imageUrl
-
-    // Delete from database
     const result = await Invoice.deleteInvoiceImage(imageUrl);
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Image not found' });
     }
 
-    // Delete the actual file from the server
     const imagePath = path.join(__dirname, '..', imageUrl);
     fs.unlink(imagePath, (err) => {
       if (err) {
         console.error('Failed to delete image file', err);
-        // Proceed with the response, but you may want to handle file errors differently
       }
     });
 
     res.status(200).json({ message: 'Image deleted successfully' });
   } catch (error) {
-    console.error('Failed to delete image', error);
     res.status(500).json({ message: 'Failed to delete image', error: error.message });
   }
 });
-
 
 module.exports = router;

@@ -49,6 +49,30 @@ class Invoice {
     return result;
   }
 
+  // New Method: Retrieve Receipt Types from Database ENUM
+  static async getReceiptTypes() {
+    try {
+      const [result] = await db.query(`
+        SELECT COLUMN_TYPE 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_NAME = 'invoices' AND COLUMN_NAME = 'receiptType';
+      `);
+
+      if (!result || !result[0]) {
+        throw new Error('Receipt types not found');
+      }
+
+      const columnType = result[0].COLUMN_TYPE; // e.g., "enum('Invoice','Gas','Support Office','Meal Expense','Representation Expense','Other')"
+      const receiptTypes = columnType.match(/enum\((.*)\)/)[1]
+        .replace(/'/g, '') // Remove single quotes
+        .split(','); // Split into an array
+
+      return receiptTypes;
+    } catch (error) {
+      console.error('Error fetching receipt types:', error.message);
+      throw error;
+    }
+  }
 }
 
 module.exports = Invoice;
