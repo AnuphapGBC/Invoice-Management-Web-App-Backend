@@ -2,8 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const sharp = require('sharp');
-const Invoice = require('../models/Invoice');  // Your existing Invoice model
+const { exec } = require('child_process');
+const Invoice = require('../models/Invoice'); 
 const router = express.Router();
 
 // Ensure uploads directory exists
@@ -12,13 +12,12 @@ if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Multer Storage Config
+// Multer storage and file filter
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, 'uploads/'),
     filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
 
-// Only allow images (jpg, png, webp, heic, etc.)
 const fileFilter = (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
         cb(null, true);
@@ -27,37 +26,31 @@ const fileFilter = (req, file, cb) => {
     }
 };
 
-const upload = multer({
-    storage,
-    fileFilter
-});
+const upload = multer({ storage, fileFilter });
 
-// Helper - Log incoming requests (for debugging)
+// Log request for debugging
 function logRequest(req) {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
     console.log('Body:', req.body);
     console.log('Files:', req.files?.map(f => f.filename) || 'No files');
 }
 
-// Convert HEIC to JPG if needed
-async function convertHEICtoJPEG(filePath) {
-    if (!filePath.toLowerCase().endsWith('.heic')) {
-        return filePath;  // Skip non-HEIC files
-    }
-
-    const newPath = filePath.replace(/\.heic$/, '.jpg');
-    try {
-        await sharp(filePath).toFormat('jpeg').toFile(newPath);
-        fs.unlinkSync(filePath);  // Delete original HEIC file
-        console.log(`Converted ${filePath} to ${newPath}`);
-        return newPath;
-    } catch (error) {
-        console.error('Failed to convert HEIC to JPEG:', error);
-        return filePath;  // Fall back to original HEIC if conversion fails
-    }
+// HEIC to JPG converter using heif-convert
+function convertHEICtoJPG(heicPath) {
+    return new Promise((resolve, reject) => {
+        const jpgPath = heicPath.replace(/\.heic$/i, '.jpg');
+        exec(`heif-convert "${heicPath}" "${jpgPath}"`, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`HEIC conversion failed: ${stderr}`);
+                return reject(error);
+            }
+            fs.unlinkSync(heicPath); // Remove original HEIC file
+            resolve(jpgPath);
+        });
+    });
 }
 
-// ===== Get Receipt Types =====
+// Get Receipt Types
 router.get('/receipt-types', async (req, res) => {
     try {
         const receiptTypes = await Invoice.getReceiptTypes();
@@ -67,14 +60,24 @@ router.get('/receipt-types', async (req, res) => {
     }
 });
 
-// ===== Create Invoice with Images =====
+// Create Invoice with images
 router.post('/', upload.array('images', 10), async (req, res) => {
     logRequest(req);
 
     const { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency, createdBy } = req.body;
     let images = req.files.map(file => file.path);
 
-    images = await Promise.all(images.map(async (file) => convertHEICtoJPEG(file)));
+    // Convert HEIC files if needed
+    for (let i = 0; i < images.length; i++) {
+        if (images[i].toLowerCase().endsWith('.heic')) {
+            try {
+                images[i] = await convertHEICtoJPG(images[i]);
+            } catch (err) {
+                console.error(`HEIC conversion failed for ${images[i]}`, err);
+                return res.status(500).json({ message: 'Failed to process HEIC file' });
+            }
+        }
+    }
 
     if (!receiptNumber) {
         return res.status(400).json({ message: 'Receipt Number is required' });
@@ -94,7 +97,7 @@ router.post('/', upload.array('images', 10), async (req, res) => {
     }
 });
 
-// ===== Get All Invoices =====
+// Get All Invoices
 router.get('/', async (req, res) => {
     try {
         const invoices = await Invoice.getAllInvoices();
@@ -104,7 +107,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-// ===== Get Single Invoice (with Images) =====
+// Get Invoice by ID (including images)
 router.get('/:id', async (req, res) => {
     try {
         const invoice = await Invoice.getInvoiceById(req.params.id);
@@ -118,14 +121,23 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// ===== Update Invoice with Images =====
+// Update Invoice with images
 router.put('/:id', upload.array('images', 10), async (req, res) => {
     logRequest(req);
 
     const { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency } = req.body;
     let images = req.files.map(file => file.path);
 
-    images = await Promise.all(images.map(async (file) => convertHEICtoJPEG(file)));
+    for (let i = 0; i < images.length; i++) {
+        if (images[i].toLowerCase().endsWith('.heic')) {
+            try {
+                images[i] = await convertHEICtoJPG(images[i]);
+            } catch (err) {
+                console.error(`HEIC conversion failed for ${images[i]}`, err);
+                return res.status(500).json({ message: 'Failed to process HEIC file' });
+            }
+        }
+    }
 
     if (!receiptNumber) {
         return res.status(400).json({ message: 'Receipt Number is required' });
@@ -147,7 +159,7 @@ router.put('/:id', upload.array('images', 10), async (req, res) => {
     }
 });
 
-// ===== Delete Invoice =====
+// Delete Invoice
 router.delete('/:id', async (req, res) => {
     try {
         const result = await Invoice.deleteInvoice(req.params.id);
@@ -160,7 +172,7 @@ router.delete('/:id', async (req, res) => {
     }
 });
 
-// ===== Get Images for Invoice =====
+// Get Images for Invoice
 router.get('/:id/images', async (req, res) => {
     try {
         const images = await Invoice.getInvoiceImages(req.params.id);
@@ -170,7 +182,7 @@ router.get('/:id/images', async (req, res) => {
     }
 });
 
-// ===== Delete Single Image =====
+// Delete Single Image
 router.delete('/images', async (req, res) => {
     const { imageUrl } = req.body;
 
