@@ -10,36 +10,54 @@ const sendMailRoute = require('./routes/sendMail');
 
 const app = express();
 
-// Middleware configurations
-app.use(cors());
+// Logger - log every request
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+    next();
+});
 
-// Increase payload size limits to handle large requests
-app.use(bodyParser.json({ limit: '50mb' })); // Increase JSON payload limit
-app.use(bodyParser.urlencoded({ limit: '50mb', extended: true })); // Increase URL-encoded payload limit
+// CORS Configuration
+const corsOptions = {
+    origin: ['http://localhost:3000', 'http://34.56.114.121', 'https://your-production-domain.com'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
+
+// Cache-Control
+app.use((req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+});
+
+// Increase payload size limits
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // Ensure the uploads folder exists
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true }); // Ensure nested directories are created
+    fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Serve static files from the uploads folder
+// Serve static files (images)
 app.use('/uploads', express.static(uploadDir));
 
-// Define API routes
+// API Routes
 app.use('/api', authRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api', sendMailRoute);
 
-// Fallback for invalid routes
+// 404 Fallback (for API-only servers)
 app.use('*', (req, res) => {
-  console.log(`Invalid route accessed: ${req.originalUrl}`);
-  res.status(404).send('Route not found');
+    res.status(404).send('Route not found');
 });
 
-// Start the server
+// Start Server
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
