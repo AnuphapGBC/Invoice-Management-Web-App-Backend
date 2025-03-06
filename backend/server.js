@@ -32,9 +32,24 @@ app.use((req, res, next) => {
     next();
 });
 
-// Increase payload size limits
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+// Conditional body-parser (skip for file upload routes)
+app.use((req, res, next) => {
+    if (
+        (req.path.startsWith('/api/invoices') && (req.method === 'POST' || req.method === 'PUT')) ||
+        (req.path.startsWith('/api/invoices/') && req.method === 'POST')  // for /invoices/:id/images
+    ) {
+        // Skip bodyParser.json() and bodyParser.urlencoded() for these routes
+        next();
+    } else {
+        bodyParser.json({ limit: '50mb' })(req, res, (err) => {
+            if (err) {
+                console.error('JSON Parse Error:', err);
+                return res.status(400).json({ message: 'Invalid JSON' });
+            }
+            bodyParser.urlencoded({ limit: '50mb', extended: true })(req, res, next);
+        });
+    }
+});
 
 // Ensure the uploads folder exists
 const uploadDir = path.join(__dirname, 'uploads');
