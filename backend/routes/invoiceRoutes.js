@@ -16,7 +16,19 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
-const upload = multer({ storage });
+
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/heic', 'image/heif'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      console.warn(`🚫 Blocked file: ${file.originalname} (${file.mimetype})`);
+      return cb(new Error('Only image files are allowed'));
+    }
+    cb(null, true);
+  }
+});
 
 // HEIC to JPG converter
 function convertHEICtoJPG(heicPath) {
@@ -48,7 +60,18 @@ router.get('/receipt-types', async (req, res) => {
 // Create invoice
 router.post('/', upload.array('images', 10), async (req, res) => {
   console.log('BODY:', req.body);
-  console.log('FILES:', req.files?.map(f => `${f.originalname} (${f.mimetype})`));
+  // console.log('FILES:', req.files?.map(f => `${f.originalname} (${f.mimetype})`));
+
+  if (!req.files || req.files.length === 0) {
+    console.warn('⚠️ No images received in upload.');
+  } else {
+    console.log('✅ Received files:');
+    req.files.forEach((file, index) => {
+      console.log(`📎 ${index + 1}: ${file.originalname} (${file.mimetype})`);
+    });
+  }
+  
+
 
   const { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency, createdBy } = req.body;
   let images = req.files.map(file => file.path);
@@ -109,7 +132,17 @@ router.get('/:id', async (req, res) => {
 // Update invoice
 router.put('/:id', upload.array('images', 10), async (req, res) => {
   console.log('UPDATE BODY:', req.body);
-  console.log('UPDATE FILES:', req.files?.map(f => f.originalname));
+  // console.log('UPDATE FILES:', req.files?.map(f => f.originalname));
+
+  if (!req.files || req.files.length === 0) {
+    console.warn('⚠️ No new images received in update.');
+  } else {
+    console.log('✅ Update received files:');
+    req.files.forEach((file, index) => {
+      console.log(`📝 ${index + 1}: ${file.originalname} (${file.mimetype})`);
+    });
+  }
+  
 
   const { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency } = req.body;
   let images = req.files.map(file => file.path);
