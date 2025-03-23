@@ -3,208 +3,182 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
-const Invoice = require('../models/Invoice'); 
+const Invoice = require('../models/Invoice');
+
 const router = express.Router();
 
-// Ensure uploads directory exists
+// Setup upload folder
 const uploadDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-// Multer storage and file filter
+// Configure multer
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, 'uploads/'),
-    filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
+const upload = multer({ storage });
 
-const fileFilter = (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-    } else {
-        cb(new Error('Only image files are allowed!'), false);
-    }
-};
-
-const upload = multer({ storage, fileFilter });
-
-// Log request for debugging
-function logRequest(req) {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
-    console.log('Body:', req.body);
-    console.log('Files:', req.files?.map(f => f.filename) || 'No files');
-}
-
-// HEIC to JPG converter using heif-convert
+// HEIC to JPG converter
 function convertHEICtoJPG(heicPath) {
-    return new Promise((resolve, reject) => {
-        const jpgPath = heicPath.replace(/\.heic$/i, '.jpg');
-        exec(`heif-convert "${heicPath}" "${jpgPath}"`, (error, stdout, stderr) => {
-            if (error) {
-                console.error(`HEIC conversion failed: ${stderr}`);
-                return reject(error);
-            }
-            fs.unlinkSync(heicPath); // Remove original HEIC file
-            resolve(jpgPath);
-        });
+  return new Promise((resolve, reject) => {
+    const jpgPath = heicPath.replace(/\.heic$/i, '.jpg');
+    exec(`heif-convert "${heicPath}" "${jpgPath}"`, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Conversion failed: ${stderr}`);
+        return reject(error);
+      }
+      fs.unlinkSync(heicPath); // Delete original HEIC
+      resolve(jpgPath);
     });
+  });
 }
 
-// Get Receipt Types
+// --- Routes ---
+
+// Get all receipt types
 router.get('/receipt-types', async (req, res) => {
-    try {
-        const receiptTypes = await Invoice.getReceiptTypes();
-        res.status(200).json(receiptTypes);
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to fetch receipt types', error: error.message });
-    }
+  try {
+    const receiptTypes = await Invoice.getReceiptTypes();
+    res.json(receiptTypes);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch receipt types', error: err.message });
+  }
 });
 
-// Create Invoice with images
+// Create invoice
 router.post('/', upload.array('images', 10), async (req, res) => {
-    logRequest(req);
+  console.log('BODY:', req.body);
+  console.log('FILES:', req.files?.map(f => `${f.originalname} (${f.mimetype})`));
 
-    const { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency, createdBy } = req.body;
-    let images = req.files.map(file => file.path);
+  const { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency, createdBy } = req.body;
+  let images = req.files.map(file => file.path);
 
-    // Convert HEIC files if needed
-    for (let i = 0; i < images.length; i++) {
-        if (images[i].toLowerCase().endsWith('.heic')) {
-            try {
-                images[i] = await convertHEICtoJPG(images[i]);
-            } catch (err) {
-                console.error(`HEIC conversion failed for ${images[i]}`, err);
-                return res.status(500).json({ message: 'Failed to process HEIC file' });
-            }
-        }
+  // Convert HEIC files
+  for (let i = 0; i < images.length; i++) {
+    if (images[i].toLowerCase().endsWith('.heic')) {
+      try {
+        images[i] = await convertHEICtoJPG(images[i]);
+      } catch (err) {
+        console.error('Failed to convert HEIC:', err);
+        return res.status(500).json({ message: 'HEIC conversion failed' });
+      }
+    }
+  }
+
+  if (!receiptNumber) return res.status(400).json({ message: 'Receipt Number is required' });
+
+  try {
+    const result = await Invoice.createInvoice({
+      receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency, createdBy
+    });
+
+    const invoiceId = result.insertId;
+    if (images.length > 0) {
+      await Invoice.addInvoiceImages(invoiceId, images);
     }
 
-    if (!receiptNumber) {
-        return res.status(400).json({ message: 'Receipt Number is required' });
-    }
-
-    try {
-        const result = await Invoice.createInvoice({ receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency, createdBy });
-        const invoiceId = result.insertId;
-
-        if (images.length > 0) {
-            await Invoice.addInvoiceImages(invoiceId, images);
-        }
-
-        res.status(201).json({ message: 'Invoice created successfully', invoiceId, images });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to create invoice', error: error.message });
-    }
+    res.status(201).json({ message: 'Invoice created', invoiceId, images });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to create invoice', error: err.message });
+  }
 });
 
-// Get All Invoices
+// Get all invoices
 router.get('/', async (req, res) => {
-    try {
-        const invoices = await Invoice.getAllInvoices();
-        res.status(200).json({ invoices });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to retrieve invoices', error: error.message });
-    }
+  try {
+    const invoices = await Invoice.getAllInvoices();
+    res.json({ invoices });
+  } catch (err) {
+    res.status(500).json({ message: 'Error retrieving invoices', error: err.message });
+  }
 });
 
-// Get Invoice by ID (including images)
+// Get invoice + images
 router.get('/:id', async (req, res) => {
-    try {
-        const invoice = await Invoice.getInvoiceById(req.params.id);
-        if (!invoice) {
-            return res.status(404).json({ message: 'Invoice not found' });
-        }
-        const images = await Invoice.getInvoiceImages(req.params.id);
-        res.status(200).json({ invoice, images });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to retrieve invoice', error: error.message });
-    }
+  try {
+    const invoice = await Invoice.getInvoiceById(req.params.id);
+    if (!invoice) return res.status(404).json({ message: 'Not found' });
+
+    const images = await Invoice.getInvoiceImages(req.params.id);
+    res.json({ invoice, images });
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching invoice', error: err.message });
+  }
 });
 
-// Update Invoice with images
+// Update invoice
 router.put('/:id', upload.array('images', 10), async (req, res) => {
-    logRequest(req);
+  console.log('UPDATE BODY:', req.body);
+  console.log('UPDATE FILES:', req.files?.map(f => f.originalname));
 
-    const { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency } = req.body;
-    let images = req.files.map(file => file.path);
+  const { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency } = req.body;
+  let images = req.files.map(file => file.path);
 
-    for (let i = 0; i < images.length; i++) {
-        if (images[i].toLowerCase().endsWith('.heic')) {
-            try {
-                images[i] = await convertHEICtoJPG(images[i]);
-            } catch (err) {
-                console.error(`HEIC conversion failed for ${images[i]}`, err);
-                return res.status(500).json({ message: 'Failed to process HEIC file' });
-            }
-        }
+  for (let i = 0; i < images.length; i++) {
+    if (images[i].toLowerCase().endsWith('.heic')) {
+      try {
+        images[i] = await convertHEICtoJPG(images[i]);
+      } catch (err) {
+        console.error('HEIC update conversion error:', err);
+        return res.status(500).json({ message: 'Failed to convert HEIC file' });
+      }
+    }
+  }
+
+  try {
+    const result = await Invoice.updateInvoice(req.params.id, {
+      receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency
+    });
+
+    if (result.affectedRows === 0) return res.status(404).json({ message: 'Invoice not found' });
+
+    if (images.length > 0) {
+      await Invoice.addInvoiceImages(req.params.id, images);
     }
 
-    if (!receiptNumber) {
-        return res.status(400).json({ message: 'Receipt Number is required' });
-    }
-
-    try {
-        const result = await Invoice.updateInvoice(req.params.id, { receiptNumber, invoiceNumber, date, time, receiptType, narrative, amount, currency });
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Invoice not found' });
-        }
-
-        if (images.length > 0) {
-            await Invoice.addInvoiceImages(req.params.id, images);
-        }
-
-        res.status(200).json({ message: 'Invoice updated successfully', images });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to update invoice', error: error.message });
-    }
+    res.json({ message: 'Invoice updated', id: req.params.id, images });
+  } catch (err) {
+    res.status(500).json({ message: 'Update error', error: err.message });
+  }
 });
 
-// Delete Invoice
-router.delete('/:id', async (req, res) => {
-    try {
-        const result = await Invoice.deleteInvoice(req.params.id);
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Invoice not found' });
-        }
-        res.status(200).json({ message: 'Invoice deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to delete invoice', error: error.message });
-    }
-});
-
-// Get Images for Invoice
+// Get invoice images
 router.get('/:id/images', async (req, res) => {
-    try {
-        const images = await Invoice.getInvoiceImages(req.params.id);
-        res.status(200).json({ images });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to retrieve images', error: error.message });
-    }
+  try {
+    const images = await Invoice.getInvoiceImages(req.params.id);
+    res.json({ images });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not get images', error: err.message });
+  }
 });
 
-// Delete Single Image
+// Delete invoice
+router.delete('/:id', async (req, res) => {
+  try {
+    const result = await Invoice.deleteInvoice(req.params.id);
+    if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
+    res.json({ message: 'Deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Delete error', error: err.message });
+  }
+});
+
+// Delete single image
 router.delete('/images', async (req, res) => {
-    const { imageUrl } = req.body;
+  const { imageUrl } = req.body;
+  if (!imageUrl) return res.status(400).json({ message: 'Image URL required' });
 
-    if (!imageUrl) {
-        return res.status(400).json({ message: 'Image URL is required' });
-    }
+  try {
+    const result = await Invoice.deleteInvoiceImage(imageUrl);
+    if (result.affectedRows === 0) return res.status(404).json({ message: 'Image not found' });
 
-    try {
-        const result = await Invoice.deleteInvoiceImage(imageUrl);
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Image not found' });
-        }
+    const fullPath = path.join(__dirname, '..', imageUrl);
+    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
 
-        const imagePath = path.join(__dirname, '..', imageUrl);
-        fs.unlink(imagePath, (err) => {
-            if (err) console.error('Failed to delete image file:', err);
-        });
-
-        res.status(200).json({ message: 'Image deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to delete image', error: error.message });
-    }
+    res.json({ message: 'Image deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete image', error: err.message });
+  }
 });
 
 module.exports = router;
