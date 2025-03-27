@@ -21,14 +21,25 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/heic', 'image/heif'];
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/heic',
+      'image/heif',
+      'image/webp', // ✅ Add this to support Android/Chrome
+    ];
+
+    console.log(`🧐 Incoming file: ${file.originalname} (${file.mimetype})`);
+
     if (!allowedTypes.includes(file.mimetype)) {
-      console.warn(`🚫 Blocked file: ${file.originalname} (${file.mimetype})`);
-      return cb(new Error('Only image files are allowed'));
+      console.warn(`❌ Rejected file: ${file.mimetype}`);
+      return cb(null, false); // ✅ silently reject instead of throwing error
     }
-    cb(null, true);
-  }
+
+    cb(null, true); // ✅ accept the file
+  },
 });
+
 
 // HEIC to JPG converter
 function convertHEICtoJPG(heicPath) {
@@ -213,5 +224,22 @@ router.delete('/images', async (req, res) => {
     res.status(500).json({ message: 'Failed to delete image', error: err.message });
   }
 });
+
+router.post('/test-upload', upload.array('images', 5), async (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ message: 'No valid image files uploaded (check format)' });
+  }
+
+  console.log('✅ Test Upload - Files received:');
+  req.files.forEach((file, i) => {
+    console.log(`📎 ${i + 1}: ${file.originalname} (${file.mimetype})`);
+  });
+
+  res.status(200).json({
+    message: 'Test upload successful',
+    files: req.files.map((f) => f.originalname),
+  });
+});
+
 
 module.exports = router;
